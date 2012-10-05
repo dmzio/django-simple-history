@@ -125,7 +125,6 @@ class HistoricalRecords(object):
         manager = getattr(instance, self.manager_name)
         attrs = {}
         for field in instance._meta.fields:
-            print field.__dict__
             attrs[field.name] = getattr(instance, field.attname)
         if hasattr(settings, 'SIMPLE_HISTORY_CURRENT_USER'):
             current_user = settings.SIMPLE_HISTORY_CURRENT_USER()
