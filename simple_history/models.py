@@ -1,20 +1,12 @@
 import copy
 import datetime
 from django.db import models
-from fields import SimpleHistoryForeignKey,SimpleHistoryOneToOneField
+from django.contrib.auth.models import User
 from manager import HistoryDescriptor
 
+from django.conf import settings
+
 class HistoricalRecords(object):
-    def __init__(self,pk_field=None):
-        if pk_field is None:
-            self.pk_field = models.AutoField(primary_key=True)
-        elif isinstance(pk_field, models.Field) \
-        and pk_field.primary_key:
-            self.pk_field = pk_field
-        else:   
-            raise ValueError("If supplied, 'pk_field' must subclass 'django.db.models.fields.Field' with a primary_key attribute of True.")
-        super(HistoricalRecords,self).__init__()
-    
     def contribute_to_class(self, cls, name):
         self.manager_name = name
         models.signals.class_prepared.connect(self.finalize, sender=cls)
@@ -25,9 +17,9 @@ class HistoricalRecords(object):
         # The HistoricalRecords object will be discarded,
         # so the signal handlers can't use weak references.
         models.signals.post_save.connect(self.post_save, sender=sender,
-                                         weak=False)
+            weak=False)
         models.signals.post_delete.connect(self.post_delete, sender=sender,
-                                           weak=False)
+            weak=False)
 
         descriptor = HistoryDescriptor(history_model)
         setattr(sender, self.manager_name, descriptor)
@@ -61,53 +53,7 @@ class HistoricalRecords(object):
                 field.__class__ = models.IntegerField
 
             if isinstance(field, models.ForeignKey):
-                # do not assume that the ForeignKey
-                # points to an AutoField
-                try:
-                    to_field = field.rel.get_related_field()
-                except AttributeError:
-                    try:
-                        to_field = field.sh_to_field
-                    except AttributeError:
-                        if isinstance(field.rel.to,basestring) \
-                        and not isinstance(field,SimpleHistoryForeignKey) \
-                        or not isinstance(field,SimpleHistoryOneToOneField):
-                            raise TypeError("ForeignKey and OneToOne fields with a string 'to' must inherit from SimpleHistoryForeignKey or SimpleHistoryOneToOneField.")
-                        else:
-                            raise
-                if isinstance(to_field, models.AutoField): 
-                    field.__class__ = models.IntegerField
-                else:
-                    # If to_field is not an AutoField, assume that
-                    # it is safe to use as-is on the history table.
-                    # However, some attributes should be ignored.
-                    field.__class__ = to_field.__class__
-                    excluded_prefixes = ("_","__")
-                    excluded_attributes = (
-                        "rel",
-                        "creation_counter",
-                        "validators",
-                        "error_messages",
-                        "attname",
-                        "column",
-                        "help_text",
-                        "name",
-                        "model",
-                        "unique_for_year",
-                        "unique_for_date",
-                        "unique_for_month",
-                        "db_tablespace",
-                        "db_index",
-                        "db_column",
-                        "default",
-                        "auto_created",
-                    )
-                    for key, val in to_field.__dict__.iteritems():
-                        if isinstance(key, basestring) \
-                        and not key.startswith(excluded_prefixes) \
-                        and not key in excluded_attributes:
-                            setattr(field,key,val)
-                    
+                field.__class__ = models.IntegerField
                 #ughhhh. open to suggestions here
                 try:
                     field.rel = None
@@ -147,13 +93,14 @@ class HistoricalRecords(object):
         """
         rel_nm = '_%s_history' % model._meta.object_name.lower()
         return {
-            'history_id': self.pk_field,
-            'history_date': models.DateTimeField(default=datetime.datetime.now),
+            'history_id': models.AutoField(primary_key=True),
+            'history_date': models.DateTimeField(auto_now_add=True),
+            'history_user': models.ForeignKey(User, null=True, related_name=rel_nm),
             'history_type': models.CharField(max_length=1, choices=(
                 ('+', 'Created'),
                 ('~', 'Changed'),
                 ('-', 'Deleted'),
-            )),
+                )),
             'history_object': HistoricalObjectDescriptor(model),
             '__unicode__': lambda self: u'%s as of %s' % (self.history_object,
                                                           self.history_date)
@@ -166,7 +113,7 @@ class HistoricalRecords(object):
         """
         return {
             'ordering': ('-history_date',),
-        }
+            }
 
     def post_save(self, instance, created, **kwargs):
         self.create_historical_record(instance, created and '+' or '~')
@@ -174,12 +121,16 @@ class HistoricalRecords(object):
     def post_delete(self, instance, **kwargs):
         self.create_historical_record(instance, '-')
 
-    def create_historical_record(self, instance, type):
+    def create_historical_record(self, instance, history_type):
         manager = getattr(instance, self.manager_name)
         attrs = {}
         for field in instance._meta.fields:
             attrs[field.attname] = getattr(instance, field.attname)
-        manager.create(history_type=type, **attrs)
+        if hasattr(settings, 'SIMPLE_HISTORY_CURRENT_USER'):
+            current_user = settings.SIMPLE_HISTORY_CURRENT_USER()
+        else:
+            current_user = None
+        manager.create(history_type=history_type, history_user=current_user, **attrs)
 
 class HistoricalObjectDescriptor(object):
     def __init__(self, model):

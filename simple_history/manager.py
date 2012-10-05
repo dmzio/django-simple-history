@@ -30,7 +30,7 @@ class HistoryManager(models.Manager):
         Returns the most recent copy of the instance available in the history.
         """
         if not self.instance:
-            raise TypeError("Can't use most_recent() without a %s instance." % \
+            raise TypeError("Can't use most_recent() without a %s instance." %\
                             self.instance._meta.object_name)
         tmp = []
         for field in self.instance._meta.fields:
@@ -42,7 +42,7 @@ class HistoryManager(models.Manager):
         try:
             values = self.values_list(*fields)[0]
         except IndexError:
-            raise self.instance.DoesNotExist("%s has no historical record." % \
+            raise self.instance.DoesNotExist("%s has no historical record." %\
                                              self.instance._meta.object_name)
         return self.instance.__class__(*values)
 
@@ -52,7 +52,7 @@ class HistoryManager(models.Manager):
         according to what was present on the object on the date provided.
         """
         if not self.instance:
-            raise TypeError("Can't use as_of() without a %s instance." % \
+            raise TypeError("Can't use as_of() without a %s instance." %\
                             self.instance._meta.object_name)
         tmp=[]
         for field in self.instance._meta.fields:
@@ -65,9 +65,9 @@ class HistoryManager(models.Manager):
         try:
             values = qs.values_list('history_type', *fields)[0]
         except IndexError:
-            raise self.instance.DoesNotExist("%s had not yet been created." % \
+            raise self.instance.DoesNotExist("%s had not yet been created." %\
                                              self.instance._meta.object_name)
         if values[0] == '-':
-            raise self.instance.DoesNotExist("%s had already been deleted." % \
+            raise self.instance.DoesNotExist("%s had already been deleted." %\
                                              self.instance._meta.object_name)
         return self.instance.__class__(*values[1:])
